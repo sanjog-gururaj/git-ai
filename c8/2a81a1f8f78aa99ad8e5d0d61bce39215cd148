@@ -1,43 +1,7 @@
-src/mdm/agents/vscode.rs
-  df92c6deab392733 183,221-250
-src/mdm/agents/github_copilot.rs
-  df92c6deab392733 1-9,11-83,87-88,92-152,154-164,166-180,184-185,189-209,213,220-371,373-400,441-487,489-506,657-674,676-680,682-720
-src/mdm/utils.rs
-  df92c6deab392733 684-797,1006-1045,1050-1068
-src/mdm/agents/mod.rs
-  df92c6deab392733 6,16,30
 ---
 {
   "schema_version": "authorship/3.0.0",
-  "git_ai_version": "development:1.1.5",
+  "git_ai_version": "development:1.1.9",
   "base_commit_sha": "c82a81a1f8f78aa99ad8e5d0d61bce39215cd148",
-  "prompts": {
-    "4ff117875471beff": {
-      "agent_id": {
-        "tool": "github-copilot",
-        "id": "ae674216-af9f-426a-a432-436e05a57669",
-        "model": "copilot/auto"
-      },
-      "human_author": "Sasha Varlamov <sasha@sashavarlamov.com>",
-      "messages": [],
-      "total_additions": 2,
-      "total_deletions": 0,
-      "accepted_lines": 2,
-      "overriden_lines": 0,
-      "messages_url": "https://dev.usegitai.com/cas/6ea4446e117e20774dc3f440056aecb716747a91a8563d93eb8aa4198571a3c3"
-    },
-    "df92c6deab392733": {
-      "agent_id": {
-        "tool": "codex",
-        "id": "019c8d12-6c4f-7bf3-ad16-3d2180eb7676",
-        "model": "unknown"
-      },
-      "human_author": "Sasha Varlamov <sasha@sashavarlamov.com>",
-      "messages": [],
-      "total_additions": 755,
-      "total_deletions": 1,
-      "accepted_lines": 718,
-      "overriden_lines": 17
-    }
-  }
+  "prompts": {}
 }
