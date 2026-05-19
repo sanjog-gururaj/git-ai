@@ -384,8 +384,10 @@ impl HookInstaller for CursorInstaller {
             });
         }
 
-        // Configure git.path
-        {
+        // Configure git.path (only when an existing git-ai wrapper is present —
+        // new installs do not create the wrapper, and pointing Cursor at a
+        // non-existent shim would break its source-control integration).
+        if crate::mdm::utils::has_existing_git_wrapper() {
             use crate::mdm::utils::{git_shim_path_string, update_git_path_setting};
 
             let git_path = git_shim_path_string();

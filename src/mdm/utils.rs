@@ -737,6 +737,15 @@ pub fn git_shim_path_string() -> String {
     git_shim_path().to_string_lossy().to_string()
 }
 
+/// Returns true when an existing git-ai wrapper is present at `git_shim_path()`.
+/// New installs intentionally do not create the wrapper — only existing users
+/// have it. Used to gate writes that would point third-party clients at the
+/// shim; without this check, new users' editors/clients would be configured to
+/// invoke a non-existent binary.
+pub fn has_existing_git_wrapper() -> bool {
+    crate::config::path_is_git_ai_binary(&git_shim_path())
+}
+
 /// Update the git.path setting in a VS Code/Cursor settings file
 pub fn update_git_path_setting(
     settings_path: &Path,
@@ -1573,5 +1582,14 @@ mod tests {
         // A path with no parent component should not error
         let path = Path::new("standalone_file.txt");
         ensure_parent_dir(path).unwrap();
+    }
+
+    /// Smoke test: in the unit-test environment there is no `git` next to the
+    /// test binary, so the helper must report no existing wrapper. The deeper
+    /// semantics of the underlying check (symlink basename, sibling presence)
+    /// are covered by `path_is_git_ai_binary`'s own tests in `src/config.rs`.
+    #[test]
+    fn test_has_existing_git_wrapper_returns_false_in_test_env() {
+        assert!(!has_existing_git_wrapper());
     }
 }

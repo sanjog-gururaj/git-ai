@@ -7,7 +7,7 @@ use crate::mdm::git_clients::get_all_git_client_installers;
 use crate::mdm::hook_installer::HookInstallerParams;
 use crate::mdm::skills_installer;
 use crate::mdm::spinner::{Spinner, print_diff};
-use crate::mdm::utils::{get_current_binary_path, git_shim_path};
+use crate::mdm::utils::{get_current_binary_path, git_shim_path, has_existing_git_wrapper};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -456,8 +456,12 @@ async fn async_run_install(
     // Track detailed results for metrics (tool_id, result)
     let mut detailed_results: Vec<(String, InstallResult)> = Vec::new();
 
-    // Ensure git symlinks for Fork compatibility
-    if let Err(e) = crate::mdm::ensure_git_symlinks() {
+    // Ensure git symlinks for Fork compatibility. Only relevant when the git-ai
+    // wrapper is present, since the libexec symlink only matters if Fork has
+    // been configured to use the wrapper as its git binary.
+    if has_existing_git_wrapper()
+        && let Err(e) = crate::mdm::ensure_git_symlinks()
+    {
         eprintln!("Warning: Failed to create git symlinks: {}", e);
     }
 
@@ -639,7 +643,14 @@ async fn async_run_install(
     }
 
     // === Git Clients ===
-    let git_client_installers = get_all_git_client_installers();
+    // Skip when no git-ai wrapper is present: Fork / Sublime Merge would be
+    // pointed at a non-existent shim and break. New installs do not create the
+    // wrapper, so this section is a no-op for them.
+    let git_client_installers = if has_existing_git_wrapper() {
+        get_all_git_client_installers()
+    } else {
+        Vec::new()
+    };
     if !git_client_installers.is_empty() {
         println!("\n\x1b[1mGit Clients\x1b[0m");
 

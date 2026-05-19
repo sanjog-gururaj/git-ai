@@ -180,45 +180,51 @@ impl HookInstaller for VSCodeInstaller {
             });
         }
 
-        // Configure git.path
+        // Configure git.path (only when an existing git-ai wrapper is present —
+        // new installs do not create the wrapper, and pointing VS Code at a
+        // non-existent shim would break its source-control integration).
         {
             use crate::mdm::utils::{
-                git_shim_path_string, update_git_path_setting, update_vscode_chat_hook_settings,
+                git_shim_path_string, has_existing_git_wrapper, update_git_path_setting,
+                update_vscode_chat_hook_settings,
             };
 
+            let configure_git_path = has_existing_git_wrapper();
             let git_path = git_shim_path_string();
             for settings_path in Self::settings_targets() {
                 if !should_process_settings_target(&settings_path) {
                     continue;
                 }
 
-                match update_git_path_setting(&settings_path, &git_path, dry_run) {
-                    Ok(Some(diff)) => {
-                        results.push(InstallResult {
-                            changed: true,
-                            diff: Some(diff),
-                            message: format!(
-                                "VS Code: git.path updated in {}",
-                                settings_path.display()
-                            ),
-                        });
-                    }
-                    Ok(None) => {
-                        results.push(InstallResult {
-                            changed: false,
-                            diff: None,
-                            message: format!(
-                                "VS Code: git.path already configured in {}",
-                                settings_path.display()
-                            ),
-                        });
-                    }
-                    Err(e) => {
-                        results.push(InstallResult {
-                            changed: false,
-                            diff: None,
-                            message: format!("VS Code: Failed to configure git.path: {}", e),
-                        });
+                if configure_git_path {
+                    match update_git_path_setting(&settings_path, &git_path, dry_run) {
+                        Ok(Some(diff)) => {
+                            results.push(InstallResult {
+                                changed: true,
+                                diff: Some(diff),
+                                message: format!(
+                                    "VS Code: git.path updated in {}",
+                                    settings_path.display()
+                                ),
+                            });
+                        }
+                        Ok(None) => {
+                            results.push(InstallResult {
+                                changed: false,
+                                diff: None,
+                                message: format!(
+                                    "VS Code: git.path already configured in {}",
+                                    settings_path.display()
+                                ),
+                            });
+                        }
+                        Err(e) => {
+                            results.push(InstallResult {
+                                changed: false,
+                                diff: None,
+                                message: format!("VS Code: Failed to configure git.path: {}", e),
+                            });
+                        }
                     }
                 }
 
