@@ -437,9 +437,7 @@ pub fn redact_secret(secret: &str) -> String {
 /// like a secret. Performs no heap allocations — scans inline and short-circuits
 /// on the first match.
 pub fn text_contains_secrets(text: &str) -> bool {
-    scan_tokens(text, |start, end| {
-        is_random(&text.as_bytes()[start..end])
-    })
+    scan_tokens(text, |start, end| is_random(&text.as_bytes()[start..end]))
 }
 
 /// Redact all detected secrets in a text string.
