@@ -89,7 +89,7 @@
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "3.9.1",
     "eslint": "^10.3.0",
-    "ovsx": "0.10.11",
+    "ovsx": "0.10.12",
     "typescript": "^6.0.3"
   },
   "resolutions": {
