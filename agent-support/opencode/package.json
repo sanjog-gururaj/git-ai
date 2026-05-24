@@ -8,14 +8,15 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@opencode-ai/plugin": "^1.4.3"
+    "@opencode-ai/plugin": "^1.4.3",
+    "uuid": "^14.0.0"
   },
   "devDependencies": {
     "@types/node": "^25.x",
     "typescript": "^5.8.3"
   },
   "overrides": {
-    "uuid": ">=14.0.0"
+    "uuid": "$uuid"
   }
 }
 
