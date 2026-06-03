@@ -69,7 +69,7 @@ impl SweepCoordinator {
 
             // Per-session: only check owned streams for staleness
             for session in &discovered {
-                let canonical = Self::canonicalize_path(&session.transcript_path);
+                let canonical = Self::canonicalize_path(&session.stream_path);
                 if self.any_stream_stale(session, &canonical, &owned)? {
                     items.push(SweepItem::Session {
                         session_id: session.session_id.clone(),
@@ -85,7 +85,7 @@ impl SweepCoordinator {
             // have separate globalStorage directories with independent OTEL DBs)
             let mut seen_shared_paths = HashSet::new();
             for session in &discovered {
-                let canonical = Self::canonicalize_path(&session.transcript_path);
+                let canonical = Self::canonicalize_path(&session.stream_path);
                 for stream in &shared {
                     let Some(item) = self.check_shared_stream(stream, &canonical, &session.tool)?
                     else {

@@ -83,7 +83,7 @@ impl Agent for ContinueAgent {
             let session = DiscoveredSession {
                 session_id,
                 tool: "continue-cli".to_string(),
-                transcript_path: path,
+                stream_path: path,
                 external_session_id,
                 external_parent_session_id: None,
             };

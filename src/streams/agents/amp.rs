@@ -119,7 +119,7 @@ impl Agent for AmpAgent {
             let session = DiscoveredSession {
                 session_id,
                 tool: "amp".to_string(),
-                transcript_path: path,
+                stream_path: path,
                 external_session_id: file_stem,
                 external_parent_session_id: None,
             };

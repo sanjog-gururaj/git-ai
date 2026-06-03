@@ -96,7 +96,7 @@ impl TranscriptWorkerHandle {
         tool: String,
         trace_id: String,
         tool_use_id: Option<String>,
-        transcript_path: PathBuf,
+        stream_path: PathBuf,
         repo_work_dir: Option<PathBuf>,
         external_session_id: String,
         external_parent_session_id: Option<String>,
@@ -106,7 +106,7 @@ impl TranscriptWorkerHandle {
             tool,
             trace_id,
             tool_use_id,
-            transcript_path,
+            stream_path,
             repo_work_dir,
             external_session_id,
             external_parent_session_id,
@@ -121,7 +121,7 @@ struct CheckpointNotification {
     tool: String,
     trace_id: String,
     tool_use_id: Option<String>,
-    transcript_path: PathBuf,
+    stream_path: PathBuf,
     repo_work_dir: Option<PathBuf>,
     external_session_id: String,
     external_parent_session_id: Option<String>,
@@ -347,8 +347,8 @@ impl TranscriptWorker {
 
     /// Handle a checkpoint notification.
     async fn handle_checkpoint_notification(&mut self, notification: CheckpointNotification) {
-        let canonical_path = std::fs::canonicalize(&notification.transcript_path)
-            .unwrap_or_else(|_| notification.transcript_path.clone());
+        let canonical_path = std::fs::canonicalize(&notification.stream_path)
+            .unwrap_or_else(|_| notification.stream_path.clone());
 
         let mut enqueued: HashSet<(PathBuf, String)> = HashSet::new();
         let tasks = self.enqueue_streams_for_session(
@@ -379,10 +379,10 @@ impl TranscriptWorker {
     /// Given a main session at `<project>/<uuid>.jsonl`, subagents live at
     /// `<project>/<uuid>/subagents/agent-*.jsonl`.
     fn sweep_subagents_for_session(&mut self, notification: &CheckpointNotification) {
-        let transcript_path = &notification.transcript_path;
+        let stream_path = &notification.stream_path;
 
-        let subagents_dir = match transcript_path.file_stem() {
-            Some(stem) => transcript_path.with_file_name(stem).join("subagents"),
+        let subagents_dir = match stream_path.file_stem() {
+            Some(stem) => stream_path.with_file_name(stem).join("subagents"),
             None => return,
         };
 
@@ -394,7 +394,7 @@ impl TranscriptWorker {
             return;
         };
 
-        let external_parent_session_id = transcript_path
+        let external_parent_session_id = stream_path
             .file_stem()
             .and_then(|s| s.to_str())
             .map(|s| s.to_string());
@@ -1165,7 +1165,7 @@ mod subagent_sweep_tests {
             tool: "claude".to_string(),
             trace_id: "trace-1".to_string(),
             tool_use_id: None,
-            transcript_path: main_transcript.clone(),
+            stream_path: main_transcript.clone(),
             repo_work_dir: Some(tmp.path().to_path_buf()),
             external_session_id: "sess-abc".to_string(),
             external_parent_session_id: None,
@@ -1222,7 +1222,7 @@ mod subagent_sweep_tests {
             tool: "claude".to_string(),
             trace_id: "trace-2".to_string(),
             tool_use_id: None,
-            transcript_path: main_transcript,
+            stream_path: main_transcript,
             repo_work_dir: None,
             external_session_id: "sess-xyz".to_string(),
             external_parent_session_id: None,
@@ -1253,7 +1253,7 @@ mod subagent_sweep_tests {
             tool: "copilot".to_string(),
             trace_id: "trace-3".to_string(),
             tool_use_id: None,
-            transcript_path: main_transcript,
+            stream_path: main_transcript,
             repo_work_dir: None,
             external_session_id: "sess-abc".to_string(),
             external_parent_session_id: None,
@@ -1298,7 +1298,7 @@ mod subagent_sweep_tests {
             tool: "claude".to_string(),
             trace_id: "trace-4".to_string(),
             tool_use_id: None,
-            transcript_path: main_transcript,
+            stream_path: main_transcript,
             repo_work_dir: None,
             external_session_id: "sess-dup".to_string(),
             external_parent_session_id: None,

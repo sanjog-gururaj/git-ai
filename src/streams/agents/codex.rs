@@ -182,7 +182,7 @@ impl Agent for CodexAgent {
             sessions.push(DiscoveredSession {
                 session_id,
                 tool: "codex".to_string(),
-                transcript_path: path,
+                stream_path: path,
                 external_session_id,
                 external_parent_session_id,
             });
@@ -300,11 +300,11 @@ impl Agent for CodexAgent {
             .unwrap_or_else(|| crate::streams::agent::file_time_fallback(file_meta, is_first_event))
     }
 
-    fn infer_cwd(&self, transcript_path: &Path) -> Option<PathBuf> {
+    fn infer_cwd(&self, stream_path: &Path) -> Option<PathBuf> {
         use std::fs::File;
         use std::io::{BufRead, BufReader};
 
-        let file = File::open(transcript_path).ok()?;
+        let file = File::open(stream_path).ok()?;
         let reader = BufReader::new(file);
 
         // Codex has cwd in session_meta or turn_context payload events

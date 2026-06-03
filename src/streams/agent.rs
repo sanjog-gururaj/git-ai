@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 /// Sentinel session_id for shared stream watermark rows.
 /// Shared streams (e.g., a global OTEL SQLite DB) don't belong to any session —
-/// they use this constant as their DB key. The `transcript_path` column
+/// they use this constant as their DB key. The `stream_path` column
 /// disambiguates when multiple shared streams exist.
 pub const SHARED_STREAM_SESSION_ID: &str = "__shared__";
 
@@ -15,7 +15,7 @@ pub const SHARED_STREAM_SESSION_ID: &str = "__shared__";
 pub type PathResolverFn = Box<dyn Fn(&Path) -> Option<PathBuf> + Send + Sync>;
 
 pub enum PathResolverKind {
-    /// Same path as the session's transcript_path
+    /// Same path as the session's stream_path
     Identity,
     /// Same directory, different filename
     Sibling { filename: &'static str },
@@ -47,13 +47,13 @@ pub struct StreamDescriptor {
 }
 
 impl StreamDescriptor {
-    pub fn resolve_path(&self, transcript_path: &Path) -> Option<PathBuf> {
+    pub fn resolve_path(&self, stream_path: &Path) -> Option<PathBuf> {
         match &self.path_resolver {
-            PathResolverKind::Identity => Some(transcript_path.to_path_buf()),
+            PathResolverKind::Identity => Some(stream_path.to_path_buf()),
             PathResolverKind::Sibling { filename } => {
-                transcript_path.parent().map(|p| p.join(filename))
+                stream_path.parent().map(|p| p.join(filename))
             }
-            PathResolverKind::Custom(f) => f(transcript_path),
+            PathResolverKind::Custom(f) => f(stream_path),
         }
     }
 
@@ -150,7 +150,7 @@ pub trait Agent: Send + Sync {
     ///
     /// Reads the first few lines of the transcript looking for a `cwd` field.
     /// Returns None if the agent format doesn't include cwd or it can't be found.
-    fn infer_cwd(&self, _transcript_path: &Path) -> Option<std::path::PathBuf> {
+    fn infer_cwd(&self, _stream_path: &Path) -> Option<std::path::PathBuf> {
         None
     }
 

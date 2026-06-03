@@ -99,7 +99,7 @@ impl Agent for GeminiAgent {
             let session = DiscoveredSession {
                 session_id,
                 tool: "gemini".to_string(),
-                transcript_path: path,
+                stream_path: path,
                 external_session_id,
                 external_parent_session_id: None,
             };

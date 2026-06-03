@@ -101,7 +101,7 @@ impl Agent for DroidAgent {
             let session = DiscoveredSession {
                 session_id,
                 tool: "droid".to_string(),
-                transcript_path: path,
+                stream_path: path,
                 external_session_id,
                 external_parent_session_id: None,
             };

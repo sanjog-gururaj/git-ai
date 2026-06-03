@@ -129,9 +129,9 @@ fn extract_model_from_jsonl_head(path: &Path) -> Option<String> {
 /// Given a transcript path like `.../transcripts/{session_id}.jsonl`,
 /// derives `.../debug-logs/{session_id}/models.json` and reads the default model.
 pub fn extract_model_from_copilot_models_json(
-    transcript_path: &Path,
+    stream_path: &Path,
 ) -> Result<Option<String>, StreamError> {
-    let session_id = transcript_path
+    let session_id = stream_path
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("");
@@ -141,7 +141,7 @@ pub fn extract_model_from_copilot_models_json(
 
     // transcript: .../transcripts/{session_id}.jsonl
     // models:     .../debug-logs/{session_id}/models.json
-    let transcripts_dir = match transcript_path.parent() {
+    let transcripts_dir = match stream_path.parent() {
         Some(p) => p,
         None => return Ok(None),
     };

@@ -83,7 +83,7 @@ impl Agent for CopilotCliAgent {
             sessions.push(DiscoveredSession {
                 session_id,
                 tool: "github-copilot-cli".to_string(),
-                transcript_path: events_path,
+                stream_path: events_path,
                 external_session_id,
                 external_parent_session_id: None,
             });
@@ -123,10 +123,10 @@ impl Agent for CopilotCliAgent {
             .unwrap_or_else(|| crate::streams::agent::file_time_fallback(file_meta, is_first_event))
     }
 
-    fn infer_cwd(&self, transcript_path: &Path) -> Option<PathBuf> {
+    fn infer_cwd(&self, stream_path: &Path) -> Option<PathBuf> {
         use std::io::{BufRead, BufReader};
 
-        let file = fs::File::open(transcript_path).ok()?;
+        let file = fs::File::open(stream_path).ok()?;
         let reader = BufReader::new(file);
 
         for line in reader.lines().map_while(Result::ok).take(5) {

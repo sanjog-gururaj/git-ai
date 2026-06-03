@@ -122,10 +122,10 @@ impl CopilotAgent {
 
     /// Infer CWD from a VS Code workspace storage transcript path by reading
     /// the sibling `workspace.json` file.
-    fn infer_cwd_from_workspace_json(transcript_path: &Path) -> Option<PathBuf> {
+    fn infer_cwd_from_workspace_json(stream_path: &Path) -> Option<PathBuf> {
         // transcript: .../workspaceStorage/{hash}/GitHub.copilot-chat/transcripts/{id}.jsonl
         // workspace.json: .../workspaceStorage/{hash}/workspace.json
-        let workspace_hash_dir = transcript_path.parent()?.parent()?.parent()?;
+        let workspace_hash_dir = stream_path.parent()?.parent()?.parent()?;
         let workspace_json = workspace_hash_dir.join("workspace.json");
         let content = fs::read_to_string(&workspace_json).ok()?;
         let json: serde_json::Value = serde_json::from_str(&content).ok()?;
@@ -159,7 +159,7 @@ impl CopilotAgent {
     /// The DB lives in VS Code's globalStorage for the Copilot extension.
     /// Transcript path: .../workspaceStorage/{hash}/GitHub.copilot-chat/transcripts/{id}.jsonl
     /// OTEL DB: .../globalStorage/github.copilot-chat/agent-traces.db
-    fn resolve_otel_db_path(transcript_path: &Path) -> Option<PathBuf> {
+    fn resolve_otel_db_path(stream_path: &Path) -> Option<PathBuf> {
         if let Ok(path) = std::env::var("GIT_AI_COPILOT_OTEL_DB_PATH") {
             let p = PathBuf::from(path);
             if p.exists() {
@@ -169,7 +169,7 @@ impl CopilotAgent {
 
         // Navigate from transcript path to globalStorage
         // transcript: .../workspaceStorage/{hash}/GitHub.copilot-chat/transcripts/{id}.jsonl
-        let workspace_storage_root = transcript_path
+        let workspace_storage_root = stream_path
             .parent()? // transcripts/
             .parent()? // GitHub.copilot-chat/
             .parent()? // {hash}/
@@ -243,7 +243,7 @@ impl Agent for CopilotAgent {
             let session = DiscoveredSession {
                 session_id,
                 tool: "github-copilot".to_string(),
-                transcript_path: path,
+                stream_path: path,
                 external_session_id,
                 external_parent_session_id: None,
             };
@@ -358,14 +358,14 @@ impl Agent for CopilotAgent {
             .unwrap_or_else(|| crate::streams::agent::file_time_fallback(file_meta, is_first_event))
     }
 
-    fn infer_cwd(&self, transcript_path: &Path) -> Option<PathBuf> {
+    fn infer_cwd(&self, stream_path: &Path) -> Option<PathBuf> {
         // Try workspace.json first (VS Code workspace storage layout)
-        if let Some(cwd) = Self::infer_cwd_from_workspace_json(transcript_path) {
+        if let Some(cwd) = Self::infer_cwd_from_workspace_json(stream_path) {
             return Some(cwd);
         }
 
         // Fallback: scan first few lines for file paths in tool calls
-        let file = fs::File::open(transcript_path).ok()?;
+        let file = fs::File::open(stream_path).ok()?;
         let reader = BufReader::new(file);
         for line in reader.lines().take(20).map_while(Result::ok) {
             let Some(json) = serde_json::from_str::<serde_json::Value>(&line).ok() else {

@@ -21,7 +21,7 @@ pub enum SweepStrategy {
 pub struct DiscoveredSession {
     pub session_id: String,
     pub tool: String,
-    pub transcript_path: PathBuf,
+    pub stream_path: PathBuf,
     pub external_session_id: String,
     pub external_parent_session_id: Option<String>,
 }

@@ -98,7 +98,7 @@ impl Agent for CursorAgent {
             let session = DiscoveredSession {
                 session_id,
                 tool: "cursor".to_string(),
-                transcript_path: path,
+                stream_path: path,
                 external_session_id,
                 external_parent_session_id: None,
             };
