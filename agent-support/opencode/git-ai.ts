@@ -19,12 +19,11 @@
 
 import type { Plugin } from "@opencode-ai/plugin"
 import { spawn } from "child_process"
-import { existsSync, statSync } from "fs"
-import { dirname, isAbsolute, join } from "path"
+import { existsSync, readFileSync, statSync } from "fs"
+import { dirname, isAbsolute, join, resolve } from "path"
 
 // Absolute path to git-ai binary, replaced at install time by `git-ai install-hooks`
 const GIT_AI_BIN = "__GIT_AI_BINARY_PATH__"
-const GIT_LOOKUP_TIMEOUT_MS = 5_000
 const CHECKPOINT_TIMEOUT_MS = 30_000
 
 // Tools that modify files and should be tracked
@@ -287,23 +286,63 @@ export const GitAiPlugin: Plugin = async (ctx) => {
     return null
   }
 
-  // Helper to find git repo root from a file path or directory
-  const findGitRepo = async (pathHint: string): Promise<string | null> => {
-    const dir = nearestExistingDirectory(pathHint)
-    if (!dir) {
-      return null
-    }
-
+  const isGitDirPointer = (gitFilePath: string, worktreeDir: string): boolean => {
     try {
-      const result = await runCommand("git", ["-C", dir, "rev-parse", "--show-toplevel"], {
-        timeoutMs: GIT_LOOKUP_TIMEOUT_MS,
-      })
-      const repoRoot = result.stdout.trim()
-      if (repoRoot) {
-        return repoRoot
+      const firstLine = readFileSync(gitFilePath, "utf8").split(/\r?\n/, 1)[0]?.trim() ?? ""
+      if (!firstLine.toLowerCase().startsWith("gitdir:")) {
+        return false
+      }
+
+      const gitDir = firstLine.slice("gitdir:".length).trim()
+      if (!gitDir) {
+        return false
+      }
+
+      const gitDirPath = isAbsolute(gitDir) || /^[a-zA-Z]:[\\/]/.test(gitDir)
+        ? gitDir
+        : resolve(worktreeDir, gitDir)
+      return existsSync(gitDirPath)
+    } catch (error) {
+      debugLog(`failed to read gitdir pointer from ${gitFilePath}`, error)
+      return false
+    }
+  }
+
+  const hasGitMetadata = (dir: string): boolean => {
+    const marker = join(dir, ".git")
+    try {
+      if (!existsSync(marker)) {
+        return false
+      }
+
+      const stat = statSync(marker)
+      if (stat.isDirectory()) {
+        return true
+      }
+
+      if (stat.isFile()) {
+        return isGitDirPointer(marker, dir)
       }
     } catch (error) {
-      debugLog(`git repo lookup failed from ${dir}`, error)
+      debugLog(`failed to inspect git metadata at ${marker}`, error)
+    }
+
+    return false
+  }
+
+  // Helper to find git repo root from a file path or directory
+  const findGitRepo = async (pathHint: string): Promise<string | null> => {
+    let dir = nearestExistingDirectory(pathHint)
+    while (dir) {
+      if (hasGitMetadata(dir)) {
+        return dir
+      }
+
+      const parent = dirname(dir)
+      if (parent === dir) {
+        break
+      }
+      dir = parent
     }
 
     return null
