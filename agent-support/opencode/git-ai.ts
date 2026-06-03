@@ -18,6 +18,7 @@
  */
 
 import type { Plugin } from "@opencode-ai/plugin"
+import { spawn } from "child_process"
 import { dirname, isAbsolute, join } from "path"
 
 // Absolute path to git-ai binary, replaced at install time by `git-ai install-hooks`
@@ -139,37 +140,128 @@ const extractFilePaths = (args: unknown, cwd?: string): string[] => {
   return [...normalizedPaths]
 }
 
+type ToolHookInput = {
+  tool?: unknown
+  sessionID?: unknown
+  callID?: unknown
+  args?: unknown
+  metadata?: unknown
+  cwd?: unknown
+  workdir?: unknown
+}
+
+const asRecord = (value: unknown): Record<string, unknown> | undefined => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined
+  }
+
+  return value as Record<string, unknown>
+}
+
+const hookString = (value: unknown): string => typeof value === "string" ? value : ""
+
+const debugEnabled = (): boolean => {
+  const value = process.env.GIT_AI_OPENCODE_DEBUG ?? process.env.GIT_AI_DEBUG
+  return value === "1" || value?.toLowerCase() === "true"
+}
+
+const debugLog = (message: string, error?: unknown): void => {
+  if (!debugEnabled()) {
+    return
+  }
+
+  const detail = error instanceof Error
+    ? `${error.name}: ${error.message}`
+    : error === undefined
+      ? ""
+      : String(error)
+  console.error(`[git-ai opencode] ${message}${detail ? `: ${detail}` : ""}`)
+}
+
+const runCommand = (
+  command: string,
+  args: string[],
+  options: { cwd?: string; input?: string } = {},
+): Promise<{ stdout: string; stderr: string }> => {
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const finish = (error: Error | null, output?: { stdout: string; stderr: string }): void => {
+      if (settled) {
+        return
+      }
+
+      settled = true
+      if (error) {
+        reject(error)
+      } else if (output) {
+        resolve(output)
+      }
+    }
+
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+
+    const stdout: Buffer[] = []
+    const stderr: Buffer[] = []
+
+    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk))
+    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk))
+    child.stdin.on("error", () => {
+      // The child may exit before stdin is fully written; close/error handling below reports failures.
+    })
+    child.on("error", finish)
+    child.on("close", (code) => {
+      const output = {
+        stdout: Buffer.concat(stdout).toString(),
+        stderr: Buffer.concat(stderr).toString(),
+      }
+      if (code === 0) {
+        finish(null, output)
+        return
+      }
+
+      finish(new Error(`${command} ${args.join(" ")} exited with ${code}: ${output.stderr}`))
+    })
+
+    if (options.input !== undefined) {
+      child.stdin.end(options.input)
+    } else {
+      child.stdin.end()
+    }
+  })
+}
+
 export const GitAiPlugin: Plugin = async (ctx) => {
-  const { $ } = ctx
-
-  // Check if git-ai is installed
-  let gitAiInstalled = false
-  try {
-    await $`${GIT_AI_BIN} --version`.quiet()
-    gitAiInstalled = true
-  } catch {
-    // git-ai not installed, plugin will be a no-op
-  }
-
-  if (!gitAiInstalled) {
-    return {}
-  }
+  const { worktree, directory } = ctx
+  const defaultCwd = worktree || directory || process.cwd()
 
   // Track pending calls by callID so we can reference them in the after hook
   const pendingCalls = new Map<string, { repoDir: string; sessionID: string; toolInput: unknown }>()
 
   // Helper to find git repo root from a file path
   const findGitRepo = async (pathHint: string): Promise<string | null> => {
-    const candidateDirs = [pathHint, dirname(pathHint)]
+    const candidateDirs: string[] = []
+    let candidate = pathHint
+    while (candidate && !candidateDirs.includes(candidate)) {
+      candidateDirs.push(candidate)
+      const parent = dirname(candidate)
+      if (parent === candidate) {
+        break
+      }
+      candidate = parent
+    }
 
     for (const dir of candidateDirs) {
       try {
-        const result = await $`git -C ${dir} rev-parse --show-toplevel`.quiet()
-        const repoRoot = result.stdout.toString().trim()
+        const result = await runCommand("git", ["-C", dir, "rev-parse", "--show-toplevel"])
+        const repoRoot = result.stdout.trim()
         if (repoRoot) {
           return repoRoot
         }
-      } catch {
+      } catch (error) {
+        debugLog(`git repo lookup failed from ${dir}`, error)
         // try next candidate
       }
     }
@@ -177,19 +269,15 @@ export const GitAiPlugin: Plugin = async (ctx) => {
     return null
   }
 
+  const resolveCwd = (cwd?: string): string => {
+    if (!cwd) {
+      return defaultCwd
+    }
+
+    return normalizePath(cwd, defaultCwd) || defaultCwd
+  }
+
   const resolveRepoDir = async (filePaths: string[], cwd?: string): Promise<string | null> => {
-    if (cwd) {
-      const fromCwd = await findGitRepo(cwd)
-      if (fromCwd) {
-        return fromCwd
-      }
-    }
-
-    const fromProcessCwd = await findGitRepo(process.cwd())
-    if (fromProcessCwd) {
-      return fromProcessCwd
-    }
-
     for (const filePath of filePaths) {
       const repo = await findGitRepo(filePath)
       if (repo) {
@@ -197,91 +285,166 @@ export const GitAiPlugin: Plugin = async (ctx) => {
       }
     }
 
+    if (cwd) {
+      const fromCwd = await findGitRepo(cwd)
+      if (fromCwd) {
+        return fromCwd
+      }
+    }
+
+    const fromDefaultCwd = await findGitRepo(defaultCwd)
+    if (fromDefaultCwd) {
+      return fromDefaultCwd
+    }
+
+    const fromProcessCwd = await findGitRepo(process.cwd())
+    if (fromProcessCwd) {
+      return fromProcessCwd
+    }
+
     return null
   }
 
-  const extractToolCwd = (inputCwd: unknown, outputArgs: Record<string, unknown> | undefined): string | undefined => {
-    if (typeof outputArgs?.workdir === "string") return outputArgs.workdir
-    if (typeof outputArgs?.cwd === "string") return outputArgs.cwd
+  const extractMetadataFilePaths = (metadata: unknown): string[] => {
+    if (!metadata || typeof metadata !== "object") {
+      return []
+    }
+
+    const files = (metadata as { files?: unknown }).files
+    if (!Array.isArray(files)) {
+      return []
+    }
+
+    const paths = new Set<string>()
+    for (const file of files) {
+      if (!file || typeof file !== "object") {
+        continue
+      }
+
+      const filePath = (file as { filePath?: unknown; path?: unknown }).filePath ?? (file as { path?: unknown }).path
+      if (typeof filePath === "string") {
+        const normalized = normalizePath(filePath, defaultCwd)
+        if (normalized) {
+          paths.add(normalized)
+        }
+      }
+    }
+
+    return [...paths]
+  }
+
+  const withMetadataFilePaths = (toolInput: unknown, filePaths: string[]): unknown => {
+    if (filePaths.length === 0) {
+      return toolInput
+    }
+
+    if (toolInput && typeof toolInput === "object" && !Array.isArray(toolInput)) {
+      return {
+        ...toolInput,
+        file_paths: filePaths,
+      }
+    }
+
+    return {
+      input: toolInput,
+      file_paths: filePaths,
+    }
+  }
+
+  const extractToolCwd = (inputCwd: unknown, args: Record<string, unknown> | undefined): string | undefined => {
+    if (typeof args?.workdir === "string") return args.workdir
+    if (typeof args?.cwd === "string") return args.cwd
     if (typeof inputCwd === "string") return inputCwd
     return undefined
   }
 
   return {
-    "tool.execute.before": async (input, output) => {
+    "tool.execute.before": async (input: ToolHookInput, output?: { args?: unknown }) => {
       try {
-        const toolInput = output.args
-        const toolCwd = extractToolCwd((input as { cwd?: unknown }).cwd ?? (input as { workdir?: unknown }).workdir, output.args)
+        const toolName = hookString(input.tool)
+        const callID = hookString(input.callID)
+        const sessionID = hookString(input.sessionID)
+        const toolInput = output?.args ?? input.args
+        const toolCwd = resolveCwd(extractToolCwd(input.cwd ?? input.workdir, asRecord(toolInput)))
 
-        if (isEditTool(input.tool)) {
+        if (isEditTool(toolName)) {
           const filePaths = extractFilePaths(toolInput, toolCwd)
           const repoDir = await resolveRepoDir(filePaths, toolCwd)
           if (!repoDir) {
             return
           }
 
-          pendingCalls.set(input.callID, { repoDir, sessionID: input.sessionID, toolInput })
+          pendingCalls.set(callID, { repoDir, sessionID, toolInput })
 
           const hookInput = JSON.stringify({
             hook_event_name: "PreToolUse",
-            session_id: input.sessionID,
-            tool_use_id: input.callID,
+            session_id: sessionID,
+            tool_use_id: callID,
             cwd: repoDir,
-            tool_name: input.tool,
+            tool_name: toolName,
             tool_input: toolInput,
           })
-          await $`echo ${hookInput} | ${GIT_AI_BIN} checkpoint opencode --hook-input stdin`.quiet()
+          await runCommand(GIT_AI_BIN, ["checkpoint", "opencode", "--hook-input", "stdin"], { input: hookInput })
 
-        } else if (isBashTool(input.tool)) {
+        } else if (isBashTool(toolName)) {
           const repoDir = await resolveRepoDir([], toolCwd)
           if (!repoDir) {
             return
           }
 
-          pendingCalls.set(input.callID, { repoDir, sessionID: input.sessionID, toolInput })
+          pendingCalls.set(callID, { repoDir, sessionID, toolInput })
 
           const hookInput = JSON.stringify({
             hook_event_name: "PreToolUse",
-            session_id: input.sessionID,
-            tool_use_id: input.callID,
+            session_id: sessionID,
+            tool_use_id: callID,
             cwd: repoDir,
-            tool_name: input.tool,
+            tool_name: toolName,
             tool_input: toolInput,
           })
-          await $`echo ${hookInput} | ${GIT_AI_BIN} checkpoint opencode --hook-input stdin`.quiet()
+          await runCommand(GIT_AI_BIN, ["checkpoint", "opencode", "--hook-input", "stdin"], { input: hookInput })
         }
-      } catch {
+      } catch (error) {
+        debugLog("pre-tool checkpoint failed", error)
         // Checkpoint failures are non-critical — never propagate to the host
       }
     },
 
-    "tool.execute.after": async (input, _output) => {
+    "tool.execute.after": async (input: ToolHookInput, output?: { metadata?: unknown }) => {
       try {
-        if (!isEditTool(input.tool) && !isBashTool(input.tool)) {
+        const toolName = hookString(input.tool)
+        if (!isEditTool(toolName) && !isBashTool(toolName)) {
           return
         }
 
-        const callInfo = pendingCalls.get(input.callID)
-        pendingCalls.delete(input.callID)
+        const callID = hookString(input.callID)
+        const callInfo = pendingCalls.get(callID)
+        pendingCalls.delete(callID)
 
-        if (!callInfo) {
+        const metadataFilePaths = extractMetadataFilePaths(output?.metadata ?? input.metadata)
+        const toolInput = callInfo?.toolInput ?? withMetadataFilePaths(input.args, metadataFilePaths)
+        const sessionID = callInfo?.sessionID ?? hookString(input.sessionID)
+        const toolCwd = resolveCwd(extractToolCwd(input.cwd ?? input.workdir, asRecord(input.args)))
+        const repoDir = callInfo?.repoDir ?? await resolveRepoDir(extractFilePaths(toolInput, toolCwd), toolCwd)
+        if (!repoDir) {
           return
         }
-
-        const { repoDir, sessionID, toolInput } = callInfo
 
         const hookInput = JSON.stringify({
           hook_event_name: "PostToolUse",
           session_id: sessionID,
-          tool_use_id: input.callID,
+          tool_use_id: callID,
           cwd: repoDir,
-          tool_name: input.tool,
+          tool_name: toolName,
           tool_input: toolInput,
         })
-        await $`echo ${hookInput} | ${GIT_AI_BIN} checkpoint opencode --hook-input stdin`.quiet()
-      } catch {
+        await runCommand(GIT_AI_BIN, ["checkpoint", "opencode", "--hook-input", "stdin"], { input: hookInput })
+      } catch (error) {
+        debugLog("post-tool checkpoint failed", error)
         // Checkpoint failures are non-critical — never propagate to the host
       }
     },
   }
 }
+
+export default GitAiPlugin
