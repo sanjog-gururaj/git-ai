@@ -148,9 +148,6 @@ type ToolHookInput = {
   sessionID?: unknown
   callID?: unknown
   args?: unknown
-  metadata?: unknown
-  cwd?: unknown
-  workdir?: unknown
 }
 
 const asRecord = (value: unknown): Record<string, unknown> | undefined => {
@@ -163,10 +160,9 @@ const asRecord = (value: unknown): Record<string, unknown> | undefined => {
 
 const hookString = (value: unknown): string => typeof value === "string" ? value : ""
 
-const extractToolCwd = (inputCwd: unknown, args: Record<string, unknown> | undefined): string | undefined => {
+const extractToolCwd = (args: Record<string, unknown> | undefined): string | undefined => {
   if (typeof args?.workdir === "string") return args.workdir
   if (typeof args?.cwd === "string") return args.cwd
-  if (typeof inputCwd === "string") return inputCwd
   return undefined
 }
 
@@ -430,7 +426,7 @@ export const GitAiPlugin: Plugin = async (ctx) => {
         const callID = hookString(input.callID)
         const sessionID = hookString(input.sessionID)
         const toolInput = output?.args ?? input.args
-        const toolCwd = resolveCwd(extractToolCwd(input.cwd ?? input.workdir, asRecord(toolInput)))
+        const toolCwd = resolveCwd(extractToolCwd(asRecord(toolInput)))
         const filePaths = isTrackedEdit ? extractFilePaths(toolInput, toolCwd) : []
         const repoDir = resolveRepoDir(filePaths, toolCwd)
         if (!repoDir) {
@@ -470,8 +466,8 @@ export const GitAiPlugin: Plugin = async (ctx) => {
           return
         }
 
-        const toolCwd = resolveCwd(extractToolCwd(input.cwd ?? input.workdir, asRecord(input.args)))
-        const metadataFilePaths = extractMetadataFilePaths(output?.metadata ?? input.metadata, toolCwd)
+        const toolCwd = resolveCwd(extractToolCwd(asRecord(input.args)))
+        const metadataFilePaths = extractMetadataFilePaths(output?.metadata, toolCwd)
         const toolInput = withMetadataFilePaths(callInfo.toolInput, metadataFilePaths)
 
         const hookInput = JSON.stringify({
