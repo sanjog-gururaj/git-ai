@@ -63,6 +63,8 @@ pub enum CiRunResult {
     SkippedFastForward,
     /// Skipped: the PR synchronize event was not a rebase-like rewrite
     SkippedNonRebaseSync,
+    /// Skipped: one or more current PR commits already have authorship notes
+    SkippedExistingSyncNotes,
     /// Authorship already exists for this commit
     AlreadyExists {
         #[allow(dead_code)]
@@ -438,6 +440,30 @@ impl CiContext {
                 let resolved_base_sha = self
                     .repo
                     .merge_base(head_sha.clone(), base_target.to_string())?;
+                let resolved_base_target_sha = self.repo.revparse_single(base_target)?.id();
+
+                if resolved_base_sha != resolved_base_target_sha {
+                    println!(
+                        "Skipping PR sync authorship rewrite: current PR head is not based on {}",
+                        resolved_base_target_sha
+                    );
+                    return Ok(CiRunResult::SkippedNonRebaseSync);
+                }
+
+                if resolved_previous_base_sha == resolved_base_sha {
+                    println!(
+                        "Skipping PR sync authorship rewrite: PR base did not advance during sync"
+                    );
+                    return Ok(CiRunResult::SkippedNonRebaseSync);
+                }
+
+                if !commit_is_ancestor(&self.repo, &resolved_previous_base_sha, &resolved_base_sha)?
+                {
+                    println!(
+                        "Skipping PR sync authorship rewrite: previous PR base is not an ancestor of current PR base"
+                    );
+                    return Ok(CiRunResult::SkippedNonRebaseSync);
+                }
 
                 let original_commits = commits_in_range_oldest_first(
                     &self.repo,
@@ -463,6 +489,16 @@ impl CiContext {
                     return Ok(CiRunResult::NoAuthorshipAvailable);
                 }
 
+                let notes_before = count_commits_with_authorship_notes(&self.repo, &new_commits);
+                if notes_before > 0 {
+                    println!(
+                        "Skipping PR sync authorship rewrite: {} of {} current PR commits already have authorship notes",
+                        notes_before,
+                        new_commits.len()
+                    );
+                    return Ok(CiRunResult::SkippedExistingSyncNotes);
+                }
+
                 if !commit_ranges_have_same_patch_ids(&self.repo, &original_commits, &new_commits)?
                 {
                     println!(
@@ -475,8 +511,6 @@ impl CiContext {
                     "Rewriting authorship for rebased PR head: {} -> {}",
                     previous_head_sha, head_sha
                 );
-
-                let notes_before = count_commits_with_authorship_notes(&self.repo, &new_commits);
 
                 rewrite_authorship_after_rebase_v2(
                     &self.repo,
@@ -493,16 +527,6 @@ impl CiContext {
                         "No AI authorship to track for this PR rebase (no AI-touched files in PR)"
                     );
                     return Ok(CiRunResult::NoAuthorshipAvailable);
-                }
-
-                if notes_after == notes_before && notes_after == new_commits.len() {
-                    println!("All rebased PR commits already had authorship");
-                    return Ok(CiRunResult::AlreadyExists {
-                        authorship_log: get_reference_as_authorship_log_v3(
-                            &self.repo,
-                            new_commits.last().unwrap(),
-                        )?,
-                    });
                 }
 
                 if options.skip_push {
@@ -811,13 +835,41 @@ fn ensure_commit_available_for_sync(
     println!("Fetching PR sync commit {} into {}", commit_sha, fetch_ref);
     let mut args = repo.global_args_for_exec();
     args.push("fetch".to_string());
-    args.push("--filter=blob:none".to_string());
+    if sync_fetch_remote_supports_lazy_blobs(repo, fetch_remote)? {
+        args.push("--filter=blob:none".to_string());
+    }
     args.push("--no-tags".to_string());
     args.push(fetch_remote.to_string());
     args.push(format!("{}:{}", commit_sha, fetch_ref));
     exec_git(&args)?;
     repo.revparse_single(commit_sha)?;
     Ok(())
+}
+
+fn sync_fetch_remote_supports_lazy_blobs(
+    repo: &Repository,
+    fetch_remote: &str,
+) -> Result<bool, GitAiError> {
+    if fetch_remote.contains("://") || fetch_remote.contains('@') {
+        return Ok(false);
+    }
+
+    let mut args = repo.global_args_for_exec();
+    args.push("config".to_string());
+    args.push("--bool".to_string());
+    args.push("--get".to_string());
+    args.push(format!("remote.{}.promisor", fetch_remote));
+
+    let output = exec_git_allow_nonzero(&args)?;
+    match output.status.code() {
+        Some(0) => Ok(String::from_utf8_lossy(&output.stdout).trim() == "true"),
+        Some(1) => Ok(false),
+        code => Err(GitAiError::GitCliError {
+            code,
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            args,
+        }),
+    }
 }
 
 fn stable_patch_id_for_commit(repo: &Repository, commit_sha: &str) -> Result<String, GitAiError> {
@@ -972,5 +1024,37 @@ mod tests {
         let main_sha = repo.commit_all("main commit").expect("main commit");
 
         assert!(commit_is_ancestor(repo.gitai_repo(), &main_sha, "not-a-sha").is_err());
+    }
+
+    #[test]
+    fn sync_fetch_uses_blobless_only_for_named_promisor_remote() {
+        let repo = TmpRepo::new().expect("test repo");
+
+        assert!(
+            !sync_fetch_remote_supports_lazy_blobs(repo.gitai_repo(), "origin")
+                .expect("missing promisor config should be false")
+        );
+
+        repo.git_command(&["config", "remote.origin.promisor", "true"])
+            .expect("set promisor config");
+        assert!(
+            sync_fetch_remote_supports_lazy_blobs(repo.gitai_repo(), "origin")
+                .expect("named promisor remote should allow blobless fetch")
+        );
+
+        assert!(
+            !sync_fetch_remote_supports_lazy_blobs(
+                repo.gitai_repo(),
+                "https://github.com/acme/repo.git"
+            )
+            .expect("direct URL should not use blobless fetch")
+        );
+        assert!(
+            !sync_fetch_remote_supports_lazy_blobs(
+                repo.gitai_repo(),
+                "git@github.com:acme/repo.git"
+            )
+            .expect("direct SSH URL should not use blobless fetch")
+        );
     }
 }

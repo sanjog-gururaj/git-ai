@@ -27,6 +27,9 @@ fn print_ci_result(result: &CiRunResult, prefix: &str) {
         CiRunResult::SkippedNonRebaseSync => {
             println!("{}: skipped non-rebase PR sync", prefix);
         }
+        CiRunResult::SkippedExistingSyncNotes => {
+            println!("{}: skipped PR sync with existing current notes", prefix);
+        }
         CiRunResult::NoAuthorshipAvailable => {
             println!(
                 "{}: no AI authorship to track (pre-git-ai commits or human-only code)",
@@ -96,8 +99,11 @@ fn handle_ci_github(args: &[String]) {
                     std::process::exit(1);
                 }
                 Ok(None) => {
-                    eprintln!("No GitHub CI context found");
-                    std::process::exit(1);
+                    // No actionable pull_request event for git-ai. This is not
+                    // an error, especially now that synchronize events run for
+                    // every PR head update.
+                    println!("No GitHub CI context found; nothing to do");
+                    std::process::exit(0);
                 }
             }
         }
